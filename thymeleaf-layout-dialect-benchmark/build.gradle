@@ -41,6 +41,10 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-web'
 }
 
+repositories {
+	mavenLocal()
+}
+
 java {
 	toolchain {
 		languageVersion = JavaLanguageVersion.of(17)

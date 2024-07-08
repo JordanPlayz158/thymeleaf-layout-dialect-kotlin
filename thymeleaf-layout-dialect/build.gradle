@@ -16,18 +16,20 @@
 
 plugins {
 	id 'java-library'
-	id 'groovy'
+	//id 'groovy'
 	id 'codenarc'
 	id 'jacoco'
 	id 'distribution'
 	id 'maven-publish'
 }
 apply from: 'https://raw.githubusercontent.com/ultraq/gradle-support/4.3.1/gradle-support.gradle'
-apply from: 'https://raw.githubusercontent.com/ultraq/gradle-support/4.3.1/maven-publish-support.gradle'
+// Commented out for publishToMavenLocal due to signing plugin enabled by this causing it to fail
+//apply from: 'https://raw.githubusercontent.com/ultraq/gradle-support/4.3.1/maven-publish-support.gradle'
 
 description = 'A dialect for Thymeleaf that allows you to use layout/decorator templates to style your content.'
 group = 'nz.net.ultraq.thymeleaf'
-year = '2012'
+// Also a consequence of commenting out maven-publish-support
+//year = '2012'
 
 configurations.all {
 	resolutionStrategy.dependencySubstitution {
@@ -35,10 +37,14 @@ configurations.all {
 	}
 }
 
+repositories {
+	mavenLocal()
+}
+
 dependencies {
 	api "org.apache.groovy:groovy:${groovyVersion}"
 	implementation 'nz.net.ultraq.groovy:groovy-extensions:2.1.0'
-	implementation 'nz.net.ultraq.thymeleaf:thymeleaf-expression-processor:3.2.0'
+	implementation 'nz.net.ultraq.thymeleaf:thymeleaf-expression-processor:3.3.0'
 	implementation "org.thymeleaf:thymeleaf:${thymeleafVersion}"
 	implementation 'org.slf4j:slf4j-api:2.0.9'
 
@@ -51,6 +57,12 @@ dependencies {
 	testImplementation "org.thymeleaf.testing:thymeleaf-testing:${thymeleafVersion}"
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	testRuntimeOnly 'org.slf4j:slf4j-simple:2.0.9'
+
+
+
+
+
+	testRuntimeOnly 'org.junit.vintage:junit-vintage-engine'
 }
 
 java {
@@ -60,15 +72,33 @@ java {
 }
 
 test {
-	useJUnitPlatform()
+	useJUnitPlatform() {
+		// TODO: can't get tests to actually run, never used groovy much less groovy + java
+		includeEngines 'junit-vintage'
+		includeEngines 'junit-jupiter'
+	}
 }
 
-groovydoc {
-	link("https://www.thymeleaf.org/apidocs/thymeleaf/${thymeleafVersion}/", 'org.thymeleaf.')
-}
+//groovydoc {
+//	link("https://www.thymeleaf.org/apidocs/thymeleaf/${thymeleafVersion}/", 'org.thymeleaf.')
+//}
 
 jar {
 	manifest {
 		attributes('Automatic-Module-Name': 'nz.net.ultraq.thymeleaf.layoutdialect')
 	}
 }
+
+
+
+
+//tasks.named('compileGroovy') {
+//	// Groovy only needs the declared dependencies
+//	// (and not longer the output of compileJava)
+//	classpath = sourceSets.main.compileClasspath
+//}
+//tasks.named('compileJava') {
+//	// Java also depends on the result of Groovy compilation
+//	// (which automatically makes it depend of compileGroovy)
+//	classpath += files(sourceSets.main.groovy.classesDirectory)
+//}

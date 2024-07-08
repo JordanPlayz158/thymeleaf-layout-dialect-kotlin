@@ -1,117 +1,138 @@
-/* 
- * Copyright 2013, Emanuel Rabina (http://www.ultraq.net.nz/)
- * 
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- * 
- *     http://www.apache.org/licenses/LICENSE-2.0
- * 
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+package nz.net.ultraq.thymeleaf.layoutdialect.decorators.html;
 
-package nz.net.ultraq.thymeleaf.layoutdialect.decorators.html
-
-import nz.net.ultraq.thymeleaf.layoutdialect.decorators.SortingStrategy
-import nz.net.ultraq.thymeleaf.layoutdialect.decorators.xml.XmlDocumentDecorator
-
-import org.thymeleaf.context.ITemplateContext
-import org.thymeleaf.model.ICloseElementTag
-import org.thymeleaf.model.IModel
-import org.thymeleaf.model.IOpenElementTag
+import groovy.lang.Closure;
+import nz.net.ultraq.thymeleaf.layoutdialect.decorators.SortingStrategy;
+import nz.net.ultraq.thymeleaf.layoutdialect.decorators.xml.XmlDocumentDecorator;
+import nz.net.ultraq.thymeleaf.layoutdialect.models.extensions.IModelExtensions;
+import nz.net.ultraq.thymeleaf.layoutdialect.models.extensions.ITemplateEventExtensions;
+import org.thymeleaf.context.AbstractEngineContext;
+import org.thymeleaf.context.ITemplateContext;
+import org.thymeleaf.model.ICloseElementTag;
+import org.thymeleaf.model.IModel;
+import org.thymeleaf.model.IModelFactory;
+import org.thymeleaf.model.IOpenElementTag;
+import org.thymeleaf.model.ITemplateEvent;
 
 /**
- * A decorator made to work over an HTML document.  Decoration for a document
- * involves 2 sub-decorators: a special one for the {@code <head>} element, and
- * a standard one for the {@code <body>} element.
- * 
+ * A decorator made to work over an HTML document.  Decoration for a document involves 2
+ * sub-decorators: a special one for the {@code <head>} element, and a standard one for the
+ * {@code <body>} element.
+ *
  * @author Emanuel Rabina
  */
-class HtmlDocumentDecorator extends XmlDocumentDecorator {
-
-	final SortingStrategy sortingStrategy
-	final boolean autoHeadMerging
+public class HtmlDocumentDecorator extends XmlDocumentDecorator {
 
 	/**
 	 * Constructor, builds a decorator with the given configuration.
-	 * 
+	 *
 	 * @param context
 	 * @param sortingStrategy
 	 * @param autoHeadMerging
 	 */
-	HtmlDocumentDecorator(ITemplateContext context, SortingStrategy sortingStrategy, boolean autoHeadMerging) {
+	public HtmlDocumentDecorator(ITemplateContext context, SortingStrategy sortingStrategy,
+		boolean autoHeadMerging) {
 
-		super(context)
-		this.sortingStrategy = sortingStrategy
-		this.autoHeadMerging = autoHeadMerging
+		super(context);
+		this.sortingStrategy = sortingStrategy;
+		this.autoHeadMerging = autoHeadMerging;
 	}
 
 	/**
 	 * Decorate an entire HTML page.
-	 * 
+	 *
 	 * @param targetDocumentModel
 	 * @param sourceDocumentModel
 	 * @return Result of the decoration.
 	 */
 	@Override
-	IModel decorate(IModel targetDocumentModel, IModel sourceDocumentModel) {
+	public IModel decorate(IModel targetDocumentModel, IModel sourceDocumentModel) {
 
-		def modelFactory = context.modelFactory
-		def resultDocumentModel = targetDocumentModel.cloneModel()
+		IModelFactory modelFactory = getContext().getModelFactory();
+		IModel resultDocumentModel = targetDocumentModel.cloneModel();
 
 		// Head decoration
-		def headModelFinder = { event -> event.isOpeningElementOf('head') }
-		if (autoHeadMerging) {
-			def targetHeadModel = resultDocumentModel.findModel(headModelFinder)
-			def resultHeadModel = new HtmlHeadDecorator(context, sortingStrategy)
-				.decorate(targetHeadModel, sourceDocumentModel.findModel(headModelFinder))
-			if (resultHeadModel) {
-				if (targetHeadModel) {
-					resultDocumentModel.replaceModel(resultDocumentModel.findIndexOfModel(targetHeadModel), resultHeadModel)
-				}
-				else {
-					resultDocumentModel.insertModelWithWhitespace(resultDocumentModel.findIndexOf { event ->
-						return (event instanceof IOpenElementTag && event.elementCompleteName == 'body') ||
-						       (event instanceof ICloseElementTag && event.elementCompleteName == 'html')
-					} - 1, resultHeadModel, modelFactory)
-				}
+		Closure headModelFinder = new Closure(this, this) {
+			public Object doCall(ITemplateEvent event) {
+				return ITemplateEventExtensions.isOpeningElementOf(event, "head");
 			}
-		}
-		else {
+
+		};
+		if (autoHeadMerging) {
+			IModel targetHeadModel = IModelExtensions.findModel(resultDocumentModel, headModelFinder);
+			IModel resultHeadModel = new HtmlHeadDecorator(getContext(), sortingStrategy).decorate(
+				targetHeadModel, IModelExtensions.findModel(sourceDocumentModel, headModelFinder));
+			if (IModelExtensions.asBoolean(resultHeadModel)) {
+				if (IModelExtensions.asBoolean(targetHeadModel)) {
+					IModelExtensions.replaceModel(resultDocumentModel,
+						IModelExtensions.findIndexOfModel(resultDocumentModel, targetHeadModel),
+						resultHeadModel);
+				} else {
+					IModelExtensions.insertModelWithWhitespace(resultDocumentModel,
+						IModelExtensions.findIndexOf(resultDocumentModel, new Closure<Boolean>(this, this) {
+							public Boolean doCall(Object event) {
+								return (event instanceof IOpenElementTag
+									&& ((IOpenElementTag) event).getElementCompleteName().equals("body")) || (
+									event instanceof ICloseElementTag
+										&& ((ICloseElementTag) event).getElementCompleteName().equals("html"));
+							}
+
+						}) - 1, resultHeadModel, modelFactory);
+				}
+
+			}
+
+		} else {
 			// TODO: If autoHeadMerging is false, this really shouldn't be needed as
 			//       the basis for `resultDocumentModel` should be the source model.
 			//       This 'hack' is OK for an experimental option, but the fact that
 			//       it exists means I should rethink how the result model is made.
-			resultDocumentModel.replaceModel(
-				resultDocumentModel.findIndexOf(headModelFinder),
-				sourceDocumentModel.findModel(headModelFinder)
-			)
+			IModelExtensions.replaceModel(resultDocumentModel,
+				IModelExtensions.findIndexOf(resultDocumentModel, headModelFinder),
+				IModelExtensions.findModel(sourceDocumentModel, headModelFinder));
 		}
 
 		// Body decoration
-		def bodyModelFinder = { event ->
-			return event instanceof IOpenElementTag && event.elementCompleteName == 'body'
-		}
-		def targetBodyModel = resultDocumentModel.findModel(bodyModelFinder)
-		def resultBodyModel = new HtmlBodyDecorator(context).decorate(
-			targetBodyModel,
-			sourceDocumentModel.findModel(bodyModelFinder)
-		)
-		if (resultBodyModel) {
-			if (targetBodyModel) {
-				resultDocumentModel.replaceModel(resultDocumentModel.findIndexOfModel(targetBodyModel), resultBodyModel)
+		Closure<Boolean> bodyModelFinder = new Closure<Boolean>(this, this) {
+			public Boolean doCall(Object event) {
+				return event instanceof IOpenElementTag
+					&& ((IOpenElementTag) event).getElementCompleteName().equals("body");
 			}
-			else {
-				resultDocumentModel.insertModelWithWhitespace(resultDocumentModel.findIndexOf { event ->
-					return event.isClosingElementOf('html')
-				} - 1, resultBodyModel, modelFactory)
+
+		};
+		IModel targetBodyModel = IModelExtensions.findModel(resultDocumentModel, bodyModelFinder);
+		IModel resultBodyModel = new HtmlBodyDecorator((AbstractEngineContext) getContext()).decorate(targetBodyModel,
+			IModelExtensions.findModel(sourceDocumentModel, bodyModelFinder));
+		if (IModelExtensions.asBoolean(resultBodyModel)) {
+			if (IModelExtensions.asBoolean(targetBodyModel)) {
+				IModelExtensions.replaceModel(resultDocumentModel,
+					IModelExtensions.findIndexOfModel(resultDocumentModel, targetBodyModel), resultBodyModel);
+			} else {
+				IModelExtensions.insertModelWithWhitespace(resultDocumentModel,
+					IModelExtensions.findIndexOf(resultDocumentModel, new Closure<Boolean>(this, this) {
+						public Boolean doCall(Object event) {
+							return ITemplateEventExtensions.isClosingElementOf((ITemplateEvent) event, "html");
+						}
+
+					}) - 1, resultBodyModel, modelFactory);
 			}
+
 		}
 
-		return super.decorate(resultDocumentModel, sourceDocumentModel)
+		return super.decorate(resultDocumentModel, sourceDocumentModel);
 	}
+
+	public final SortingStrategy getSortingStrategy() {
+		return sortingStrategy;
+	}
+
+	public final boolean getAutoHeadMerging() {
+		return autoHeadMerging;
+	}
+
+	public final boolean isAutoHeadMerging() {
+		return autoHeadMerging;
+	}
+
+	private final SortingStrategy sortingStrategy;
+	private final boolean autoHeadMerging;
 }

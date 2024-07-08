@@ -1,81 +1,92 @@
-/* 
- * Copyright 2013, Emanuel Rabina (http://www.ultraq.net.nz/)
- * 
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- * 
- *     http://www.apache.org/licenses/LICENSE-2.0
- * 
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+package nz.net.ultraq.thymeleaf.layoutdialect.decorators.html;
 
-package nz.net.ultraq.thymeleaf.layoutdialect.decorators.html
-
-import nz.net.ultraq.thymeleaf.layoutdialect.decorators.Decorator
-import nz.net.ultraq.thymeleaf.layoutdialect.decorators.SortingStrategy
-import nz.net.ultraq.thymeleaf.layoutdialect.models.AttributeMerger
-
-import org.thymeleaf.context.ITemplateContext
-import org.thymeleaf.model.IModel
-
-import groovy.transform.TupleConstructor
+import groovy.lang.Closure;
+import nz.net.ultraq.thymeleaf.layoutdialect.decorators.Decorator;
+import nz.net.ultraq.thymeleaf.layoutdialect.decorators.SortingStrategy;
+import nz.net.ultraq.thymeleaf.layoutdialect.models.AttributeMerger;
+import nz.net.ultraq.thymeleaf.layoutdialect.models.extensions.IModelExtensions;
+import nz.net.ultraq.thymeleaf.layoutdialect.models.extensions.ITemplateEventExtensions;
+import org.codehaus.groovy.runtime.DefaultGroovyMethods;
+import org.thymeleaf.context.AbstractEngineContext;
+import org.thymeleaf.context.ITemplateContext;
+import org.thymeleaf.model.IModel;
+import org.thymeleaf.model.IModelFactory;
+import org.thymeleaf.model.ITemplateEvent;
 
 /**
  * A decorator specific to processing an HTML {@code <head>} element.
- * 
+ *
  * @author Emanuel Rabina
  */
-@TupleConstructor(defaults = false)
-class HtmlHeadDecorator implements Decorator {
+public class HtmlHeadDecorator implements Decorator {
+	private final ITemplateContext context;
+	private final SortingStrategy sortingStrategy;
 
-	final ITemplateContext context
-	final SortingStrategy sortingStrategy
+	public HtmlHeadDecorator(ITemplateContext context, SortingStrategy sortingStrategy) {
+		this.context = context;
+		this.sortingStrategy = sortingStrategy;
+	}
+
 
 	/**
 	 * Decorate the {@code <head>} part.
-	 * 
+	 *
 	 * @param targetHeadModel
 	 * @param sourceHeadModel
 	 * @return Result of the decoration.
 	 */
 	@Override
-	IModel decorate(IModel targetHeadModel, IModel sourceHeadModel) {
+	public IModel decorate(IModel targetHeadModel, IModel sourceHeadModel) {
 
 		// If none of the parameters are present, return nothing
-		if (!targetHeadModel && !sourceHeadModel) {
-			return null
+		if (!IModelExtensions.asBoolean(targetHeadModel) && !IModelExtensions.asBoolean(
+			sourceHeadModel)) {
+			return null;
 		}
 
-		def modelFactory = context.modelFactory
+		final IModelFactory modelFactory = context.getModelFactory();
 
 		// New head model based off the target being decorated
-		def resultHeadModel = new AttributeMerger(context).merge(targetHeadModel, sourceHeadModel)
-		if (sourceHeadModel && targetHeadModel) {
-			sourceHeadModel.childModelIterator().each { model ->
-				resultHeadModel.insertModelWithWhitespace(
-					sortingStrategy.findPositionForModel(resultHeadModel, model),
-					model, modelFactory)
-			}
+		final IModel resultHeadModel = new AttributeMerger((AbstractEngineContext) context).merge(targetHeadModel,
+			sourceHeadModel);
+		if (IModelExtensions.asBoolean(sourceHeadModel) && IModelExtensions.asBoolean(targetHeadModel)) {
+			DefaultGroovyMethods.each(IModelExtensions.childModelIterator(sourceHeadModel),
+				new Closure(this, this) {
+					public void doCall(Object model) {
+						IModelExtensions.insertModelWithWhitespace(resultHeadModel,
+							getSortingStrategy().findPositionForModel(resultHeadModel, (IModel) model),
+							(IModel) model, modelFactory);
+					}
+
+				});
 		}
 
 		// Replace <title>s in the result with a proper merge of the source and target <title> elements
-		def titleFinder = { event -> event.isOpeningElementOf('title') }
+		Closure titleFinder = new Closure(this, this) {
+			public Object doCall(ITemplateEvent event) {
+				return ITemplateEventExtensions.isOpeningElementOf(event, "title");
+			}
 
-		def indexOfTitle = resultHeadModel.findIndexOf(titleFinder)
+		};
+
+		int indexOfTitle = IModelExtensions.findIndexOf(resultHeadModel, titleFinder);
 		if (indexOfTitle != -1) {
-			resultHeadModel.removeAllModels(titleFinder)
-			def resultTitle = new HtmlTitleDecorator(context).decorate(
-				targetHeadModel?.findModel(titleFinder),
-				sourceHeadModel?.findModel(titleFinder)
-			)
-			resultHeadModel.insertModelWithWhitespace(indexOfTitle, resultTitle, modelFactory)
+			IModelExtensions.removeAllModels(resultHeadModel, titleFinder);
+			IModel resultTitle = new HtmlTitleDecorator(context).decorate(
+				IModelExtensions.findModel(targetHeadModel, titleFinder),
+				IModelExtensions.findModel(sourceHeadModel, titleFinder));
+			IModelExtensions.insertModelWithWhitespace(resultHeadModel, indexOfTitle, resultTitle,
+				modelFactory);
 		}
 
-		return resultHeadModel
+		return ((IModel) (resultHeadModel));
+	}
+
+	public final ITemplateContext getContext() {
+		return context;
+	}
+
+	public final SortingStrategy getSortingStrategy() {
+		return sortingStrategy;
 	}
 }

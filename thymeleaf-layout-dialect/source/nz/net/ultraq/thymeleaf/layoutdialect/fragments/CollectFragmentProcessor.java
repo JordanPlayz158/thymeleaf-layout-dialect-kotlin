@@ -1,136 +1,160 @@
-/*
- * Copyright 2017, Emanuel Rabina (http://www.ultraq.net.nz/)
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+package nz.net.ultraq.thymeleaf.layoutdialect.fragments;
 
-package nz.net.ultraq.thymeleaf.layoutdialect.fragments
-
-import nz.net.ultraq.thymeleaf.layoutdialect.PojoLoggerFactory
-import nz.net.ultraq.thymeleaf.layoutdialect.models.ElementMerger
-
-import org.slf4j.Logger
-import org.thymeleaf.context.ITemplateContext
-import org.thymeleaf.engine.AttributeName
-import org.thymeleaf.engine.Text
-import org.thymeleaf.model.IProcessableElementTag
-import org.thymeleaf.processor.element.AbstractAttributeTagProcessor
-import org.thymeleaf.processor.element.IElementTagStructureHandler
-import org.thymeleaf.templatemode.TemplateMode
+import groovy.lang.Closure;
+import groovy.lang.Reference;
+import java.lang.reflect.InvocationTargetException;
+import java.util.List;
+import nz.net.ultraq.thymeleaf.layoutdialect.PojoLoggerFactory;
+import nz.net.ultraq.thymeleaf.layoutdialect.fragments.extensions.FragmentExtensions;
+import nz.net.ultraq.thymeleaf.layoutdialect.models.ElementMerger;
+import nz.net.ultraq.thymeleaf.layoutdialect.models.extensions.IModelExtensions;
+import org.codehaus.groovy.runtime.DefaultGroovyMethods;
+import org.slf4j.Logger;
+import org.thymeleaf.context.AbstractEngineContext;
+import org.thymeleaf.context.ITemplateContext;
+import org.thymeleaf.engine.AttributeName;
+import org.thymeleaf.model.IModel;
+import org.thymeleaf.model.IModelFactory;
+import org.thymeleaf.model.IProcessableElementTag;
+import org.thymeleaf.model.IText;
+import org.thymeleaf.processor.element.AbstractAttributeTagProcessor;
+import org.thymeleaf.processor.element.IElementTagStructureHandler;
+import org.thymeleaf.templatemode.TemplateMode;
 
 /**
- * Processor produced from FragmentProcessor in order to separate include and
- * define logic to avoid ambiguity.
+ * Processor produced from FragmentProcessor in order to separate include and define logic to avoid
+ * ambiguity.
  *
- * @authors Emanuel Rabina, George Vinokhodov
+ * @author Emanuel Rabina
+ * @author George Vinokhodov
  */
 @Deprecated
-class CollectFragmentProcessor extends AbstractAttributeTagProcessor {
-
-	private static final Logger logger = new PojoLoggerFactory().getLogger(CollectFragmentProcessor)
-
-	private static boolean warned = false
-	private static boolean deprecationWarned = false
-
-	static final String PROCESSOR_DEFINE = 'define'
-	static final String PROCESSOR_COLLECT = 'collect'
-	static final int PROCESSOR_PRECEDENCE = 1
+public class CollectFragmentProcessor extends AbstractAttributeTagProcessor {
 
 	/**
 	 * Constructor, sets this processor to work on the 'collect' attribute.
-	 * 
+	 *
 	 * @param templateMode
 	 * @param dialectPrefix
 	 */
-	CollectFragmentProcessor(TemplateMode templateMode, String dialectPrefix) {
+	public CollectFragmentProcessor(TemplateMode templateMode, String dialectPrefix) {
 
-		super(templateMode, dialectPrefix, null, false, PROCESSOR_COLLECT, true, PROCESSOR_PRECEDENCE, true)
+		super(templateMode, dialectPrefix, null, false, PROCESSOR_COLLECT, true, PROCESSOR_PRECEDENCE,
+			true);
 	}
 
 	/**
-	 * Inserts the content of <code>:define</code> fragments into the encountered
-	 * collect placeholder.
-	 * 
+	 * Inserts the content of <code>:define</code> fragments into the encountered collect
+	 * placeholder.
+	 *
 	 * @param context
-	 * @param model
 	 * @param attributeName
 	 * @param attributeValue
 	 * @param structureHandler
 	 */
 	@Override
-	@SuppressWarnings('AssignmentToStaticFieldFromInstanceMethod')
+	@SuppressWarnings("AssignmentToStaticFieldFromInstanceMethod")
 	protected void doProcess(ITemplateContext context, IProcessableElementTag tag,
-		AttributeName attributeName, String attributeValue, IElementTagStructureHandler structureHandler) {
+		AttributeName attributeName, String attributeValue,
+		IElementTagStructureHandler structureHandler) {
 
 		if (!deprecationWarned) {
 			logger.warn(
-				'The layout:collect/data-layout-collect processor is deprecated and will be removed in the next major version of the layout dialect.'
-			)
-			deprecationWarned = true
+				"The layout:collect/data-layout-collect processor is deprecated and will be removed in the next major version of the layout dialect.");
+			deprecationWarned = true;
 		}
 
 		// Emit a warning if found in the <head> section
-		if (templateMode == TemplateMode.HTML &&
-		    context.elementStack.any { element -> element.elementCompleteName == 'head' }) {
+		if (getTemplateMode().equals(TemplateMode.HTML) && DefaultGroovyMethods.any(
+			context.getElementStack(), new Closure<Boolean>(this, this) {
+				public Boolean doCall(Object element) {
+					return ((IProcessableElementTag) element).getElementCompleteName().equals("head");
+				}
+
+			})) {
 			if (!warned) {
 				logger.warn(
-					'You don\'t need to put the layout:fragment/data-layout-fragment attribute into the <head> section - ' +
-					'the decoration process will automatically copy the <head> section of your content templates into your layout page.'
-				)
-				warned = true
+					"You don't need to put the layout:fragment/data-layout-fragment attribute into the <head> section - "
+						+ "the decoration process will automatically copy the <head> section of your content templates into your layout page.");
+				warned = true;
 			}
+
 		}
 
 		// All :define fragments we collected, :collect fragments included to
 		// determine where to stop.  Fragments after :collect are preserved for the
 		// next :collect event.
-		def fragments = context.fragmentCollection[attributeValue]
+		List<IModel> fragments = FragmentExtensions.getFragmentCollection(context).get(attributeValue);
 
 		// Replace the tag body with the fragment
-		if (fragments) {
-			def modelFactory = context.modelFactory
-			def merger = new ElementMerger(context)
-			def replacementModel = modelFactory.createModel(tag)
-			def first = true
-			while (!fragments.empty) {
-				def fragment = fragments.remove(0)
-				if (fragment.get(0).getAttributeValue(dialectPrefix, PROCESSOR_COLLECT)) {
-					break
+		if (DefaultGroovyMethods.asBoolean(fragments)) {
+			final IModelFactory modelFactory = context.getModelFactory();
+			ElementMerger merger = new ElementMerger((AbstractEngineContext) context);
+			final Reference<IModel> replacementModel = new Reference<IModel>(
+				modelFactory.createModel(tag));
+			Boolean first = true;
+			while (!fragments.isEmpty()) {
+				IModel fragment = fragments.remove(0);
+				if (DefaultGroovyMethods.asBoolean(((IProcessableElementTag) fragment.get(0)).getAttributeValue(getDialectPrefix(), CollectFragmentProcessor.getPROCESSOR_COLLECT()))) {
+					break;
 				}
+
 				if (first) {
-					replacementModel = merger.merge(replacementModel, fragment)
-					first = false
-				}
-				else {
-					def firstEvent = true
-					fragment.each { event ->
-						if (firstEvent) {
-							firstEvent = false
-							replacementModel.add(new Text('\n'))
-							replacementModel.add(modelFactory.removeAttribute(event, dialectPrefix, PROCESSOR_DEFINE))
+					replacementModel.set(merger.merge(replacementModel.get(), fragment));
+					first = false;
+				} else {
+					final Reference<Boolean> firstEvent = new Reference<Boolean>(true);
+					IModelExtensions.each(fragment, new Closure(this, this) {
+						public void doCall(IProcessableElementTag event)
+							throws ClassNotFoundException, NoSuchMethodException, InvocationTargetException, InstantiationException, IllegalAccessException {
+							if (firstEvent.get()) {
+								firstEvent.set(false);
+
+								replacementModel.get().add((IText) Class.forName("org.thymeleaf.engine.Text")
+									.getDeclaredConstructor(CharSequence.class)
+									.newInstance("\n"));
+								replacementModel.get().add(
+									modelFactory.removeAttribute(event, getDialectPrefix(),
+										getPROCESSOR_DEFINE()));
+							} else {
+								replacementModel.get().add(event);
+							}
+
 						}
-						else {
-							replacementModel.add(event)
-						}
-					}
+
+					});
 				}
+
 			}
 
 			// Remove the layout:collect attribute - Thymeleaf won't do it for us
 			// when using StructureHandler.replaceWith(...)
-			replacementModel.replace(0, modelFactory.removeAttribute(replacementModel.first(), dialectPrefix, PROCESSOR_COLLECT))
+			replacementModel.get().replace(0,
+				modelFactory.removeAttribute((IProcessableElementTag) IModelExtensions.first(replacementModel.get()),
+					getDialectPrefix(), PROCESSOR_COLLECT));
 
-			structureHandler.replaceWith(replacementModel, true)
+			structureHandler.replaceWith(replacementModel.get(), true);
 		}
+
 	}
+
+	public static String getPROCESSOR_DEFINE() {
+		return PROCESSOR_DEFINE;
+	}
+
+	public static String getPROCESSOR_COLLECT() {
+		return PROCESSOR_COLLECT;
+	}
+
+	public static int getPROCESSOR_PRECEDENCE() {
+		return PROCESSOR_PRECEDENCE;
+	}
+
+	private static final Logger logger = new PojoLoggerFactory().getLogger(
+		CollectFragmentProcessor.class);
+	private static boolean warned = false;
+	private static boolean deprecationWarned = false;
+	private static final String PROCESSOR_DEFINE = "define";
+	private static final String PROCESSOR_COLLECT = "collect";
+	private static final int PROCESSOR_PRECEDENCE = 1;
 }
